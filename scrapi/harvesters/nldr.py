@@ -67,7 +67,7 @@ def process_contributor(person_el):
 			print etree.tostring(person_el);
 			print 'INSTNAME_NOT FOUND'
 			
-			
+	# return fields must match schema for "person"
 	return {
 		'name': '%s, %s' % (last, first),
 		'givenName': first,
