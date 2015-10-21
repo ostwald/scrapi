@@ -1,7 +1,11 @@
 """
-Harvester for the CU Scholar University of Colorado Boulder for the SHARE project
+Harvester for OpenSky v1 (nldr)
 
-Example API call: http://scholar.colorado.edu/do/oai/?verb=ListRecords&metadataPrefix=oai_dc&from=2015-04-22T00:00:00Z&to=2015-04-23
+- grabs records in "osm" framework (http://nldr.library.ucar.edu/metadata/osm/1.1/schemas/osm.xsd)
+- extracts info to populate customized SHARE schema
+
+Example API call: http://nldr.library.ucar.edu/dds/services/oai2-0?verb=ListRecords&metadataPrefix=osm&from=2015-10-06T00:00:00Z&until=2015-10-09T00:00:00Z
+
 """
 
 
@@ -20,16 +24,28 @@ from scrapi.linter.document import RawDocument
 
 def process_contributor(person_el):
 	"""
-	populate schema element by plucking from supplied person_el
+	populate schema element by plucking info from supplied person_el
 	
-	NOTE: I have no idea how this element should really look.
-	this is just a DEMO 
+	sample person_el:
+		<person role="Author" order="1" UCARid="5838">
+		  <lastName>Lu</lastName>
+		  <firstName>Gang</firstName>
+		  <affiliation>
+			<instName>University Corporation for Atmospheric Research</instName>
+			<instDivision>University Corporation For Atmospheric Research (UCAR):National Center for Atmospheric Research (NCAR):High Altitude Observatory (HAO)</instDivision>
+		  </affiliation>
+		</person>	
+	
+	NOTE: see schema (https://osf.io/wur56/wiki/Schema/) - I "think" we are producing the right json
+	structure for "person" but mostly this is just a DEMO of how to get info from provided metadata
+	and create a json structure
 	"""
 	first = last = inst = None
 	# print etree.tostring(person_el);
 	role = person_el.get('role')
 	for child in person_el:
 		
+		# - One way of getting information from child elenent of person_el (based on tagName of child)
 		# hide namespace details
 		# -- child.tag returns "{http://nldr.library.ucar.edu/metadata/osm}middleName"
 		# -- qtag.localname returns "middleName"
@@ -41,11 +57,13 @@ def process_contributor(person_el):
 		if qtag.localname == 'lastName':
 			last = child.text
 			
+		# - Another way of getting info from child (using xpath)	
 		instName_els = person_el.xpath('//osm:affiliation/osm:instName', 
 			namespaces={'osm': 'http://nldr.library.ucar.edu/metadata/osm'})
 		if len(instName_els):
 			inst = instName_els[0].text
 		else:
+			# debugging - deterime why instName wasn't found
 			print etree.tostring(person_el);
 			print 'INSTNAME_NOT FOUND'
 			
@@ -55,17 +73,21 @@ def process_contributor(person_el):
 		'givenName': first,
 		'familyName': last,
 		'role': role or '',
-		'instName': inst or ''
+		'affiliation': inst or ''
 	}
 
 def relatedIdentifers(record):
 	"""
-	Here we would pluck
+	DEMO of how we would pluck the following attributes from metadate record for
+	the "relatedIdentifiers" property
+	
 	- relationIdentifier
 	- relationIdentifierType (e.g., DOI)
 	- relationType (e.g., hasDataset - but something in datacite vocab?)
 	
-	and put them in the return object
+	and put them in the return object.
+	NOTE: the required metadata for relatedIdentifiers is not yet in osm records,
+	so I am just using hardcoded values here ...
 	"""
 	relatedIdentifier = None
 	relationType = None
@@ -107,11 +129,17 @@ class OpenskyHarvester (OAIHarvester):
 		# 'source', 'format', 'identifier'
 	]
 	
-
-	
 	@property
 	def schema(self):
 		"""
+		Custom function to define schema values in terms of OSM records. 
+		Required fields (see https://osf.io/wur56/wiki/Schema/) are:
+		- title
+		- contributors
+		- uris
+		- providerUpdatedDateTime
+		
+		NOTE: contributors
 		"""
 		
 		xlink_desc = 'A collection of RelatedIdentifiers as specified by DataCite.'
@@ -123,34 +151,45 @@ class OpenskyHarvester (OAIHarvester):
 			'description': ('//ns1:abstract/node()', lambda x: x[0] if x else ''),
 			'setSpec': ('//ns0:setSpec/node()', lambda x: x[0] if x else ''),
 			
-			#compose takes a list of functions
+			# scrapi.base.helpers.compose takes a list of functions 
 			'contributors': ('//ns1:contributors/ns1:person', 
 				compose(lambda x: [
 					process_contributor(entry) 
 						for entry in x
 					], lambda x: x or [])),
 			
+			# use scrapi.base.helpers.build_properties  with relatedIdentifiers function
+			# - pass description and uri values into build_properties to describe the
+			#   relatedIdentifier property properties (they describe the property itself)
 			'otherProperties': build_properties(
 				('relatedIdentifiers', relatedIdentifers, 
 					{'description' : xlink_desc, 'uri':xlink_uri}
 				)
 			)
 		})
-
-	
 	
 	def harvest(self, start_date=None, end_date=None):
 		"""
-		need to get osm format.
-		thought i could simply override META_PREFIX_DATE (see above) but
-		apparently this var is never used!
+		Override OAIHarvester.harvest for two reasons
 		
-		So I'm copying the entire harvest method and modifying:
-		start_date - one year ago ..
-		url.args['metadataPrefix'] = 'osm'
+		1 - need to get metadata in osm format.
+			thought i could simply override META_PREFIX_DATE (see above) but
+			apparently this var is never used!
+			
+			instead we use: 
+				url.args['metadataPrefix'] = 'osm'
+		
+		2 - I wanted to understand how to use a custom date range (so I know we'll get something from
+			the provider). 
+		
+
+		NOTE: if harvester is using oai_dc it is probably not necessary to override harvest()!
+		This was done mainly as a learning exercise
+		
 		"""
 		
 		# start_date = (start_date or date.today() - timedelta(settings.DAYS_BACK)).isoformat()
+		
 		start_date = (date.today() - timedelta(3)).isoformat()
 		end_date = (end_date or date.today()).isoformat()
 
@@ -181,26 +220,4 @@ class OpenskyHarvester (OAIHarvester):
 
 		return rawdoc_list
 	
-	def normalizeOFF(self, raw_doc):
-		print "normalizing"
-		str_result = raw_doc.get('doc')
-		result = etree.XML(str_result)
-		set_spec = []
-		if self.approved_sets:
-			set_spec = result.xpath(
-				'ns0:header/ns0:setSpec/node()',
-				namespaces=self.namespaces
-			)
-			# check if there's an intersection between the approved sets and the
-			# setSpec list provided in the record. If there isn't, don't normalize.
-			if not {x.replace('publication:', '') for x in set_spec}.intersection(self.approved_sets):
-				logger.info('Series {} not in approved list'.format(set_spec))
-				return None
-		
-		status = result.xpath('ns0:header/@status', namespaces=self.namespaces)
-		if status and status[0] == 'deleted':
-			logger.info('Deleted record, not normalizing {}'.format(raw_doc['docID']))
-			return None
-		
-		return super(OAIHarvester, self).normalize(raw_doc)
 
