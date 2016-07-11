@@ -115,6 +115,11 @@ class OpenskyHarvester (OAIHarvester):
 		start_date = (date.today() - timedelta(3)).isoformat()
 		end_date = (end_date or date.today()).isoformat()
 
+
+		# DEVEL - to fetch cross-link records
+		start_date = '2015-12-22'
+		end_date = '2015-12-23'
+
 		if self.timezone_granularity:
 			start_date += 'T00:00:00Z'
 			end_date += 'T00:00:00Z'
@@ -200,38 +205,57 @@ def process_contributor(name_el):
 		'affiliation':affiliation
 	}
 
+
 def relatedIdentifers(record):
 	"""
 	DEMO of how we would pluck the following attributes from metadate record for
 	the "relatedIdentifiers" property
-	
+
 	- relationIdentifier
 	- relationIdentifierType (e.g., DOI)
 	- relationType (e.g., hasDataset - but something in datacite vocab?)
-	
+
 	and put them in the return object.
 	NOTE: the required metadata for relatedIdentifiers is not yet in osm records,
 	so I am looking for any old "doi" identifier instead ...
 	"""
 
-	
-	relatedIdentifier_xpath = '//mods:mods/mods:identifier[@type="doi"]'
+	relationType = 'UNKOWN'
+	relatedIdentifier = 'UNKOWN'
+	relatedIdentifierType = 'UNKOWN'
+
+	ns=OpenskyHarvester.namespaces
+
+	relatedItem_xpath = '//mods:mods/mods:relatedItem[@otherTypeAuth="DataCite Metadata Schema 3.1"]'
 	try:
-		relatedIdentifier = getXpath(record, relatedIdentifier_xpath)
-		relationType = "Documents" # eventually get this from mods
-		relatedIdentifierType = "DOI"
-	except Exception, msg:
-		print 'ERROR: %s' % msg 
+		relatedItem = record.xpath(relatedItem_xpath, namespaces=ns)[0]
+		if relatedItem is None:
+			raise Exception, 'relatedItem not found'
+		relationType = relatedItem.get('otherType')
+		title = getXpath(relatedItem, 'mods:titleInfo/mods:title')
+
+		# try to get a DOI, if we can't get doi look for uri
+		doi = getXpath(relatedItem, 'mods:identifier[@type="doi"]')
+		if doi:
+			relatedIdentifier = doi
+			relatedIdentifierType = "DOI"
+		else:
+			url = getXpath(relatedItem, 'mods:location/mods:url')
+			if url is not None and url != '':
+				relatedIdentifier = url
+				relatedIdentifierType = "url"
+
+	except IOError, msg:
+		print 'ERROR: %s' % msg
 		return {}
-		
-	if not relatedIdentifier:
-		return {}
-		
+
 	return {
 		'relatedIdentifierType' : relatedIdentifierType,
 		'relatedIdentifier' : relatedIdentifier,
-		'relationType' : relationType
+		'relationType' : relationType,
+		'title': title
 	}
+
 
 def publisher (record):
 	"""
