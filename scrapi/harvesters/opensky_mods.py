@@ -66,8 +66,7 @@ class OpenskyHarvester (OAIHarvester):
 			'description': ('//mods:mods/mods:abstract/node()', lambda x: x[0] if x else ''),
 			'setSpec': ('//ns0:setSpec/node()', lambda x: x[0] if x else ''),
 			'publisher': {'name' : ('//mods:mods/mods:recordInfo/mods:recordContentSource/node()', lambda x: x[0] if x else '')},
-			
-			# scrapi.base.helpers.compose takes a list of functions 
+			# scrapi.base.helpers.compose takes a list of functions
 			# not sure how/why, but below xpath only selects name_els with a family name:)
 			'contributors': ('//mods:mods/mods:name[mods:namePart[@type="family"]]', 
 				 compose(lambda x: [
@@ -83,11 +82,7 @@ class OpenskyHarvester (OAIHarvester):
 					{'description' : xlink_desc, 'uri':xlink_uri}
 				)
 			),
-			
-			# 'publisher': build_properties (
-				 # ('name', publisher)
-			 # )
-			
+
 		})
 	
 	def harvest(self, start_date=None, end_date=None):
@@ -115,14 +110,13 @@ class OpenskyHarvester (OAIHarvester):
 		start_date = (date.today() - timedelta(3)).isoformat()
 		end_date = (end_date or date.today()).isoformat()
 
-
-		# DEVEL - to fetch cross-link records
-		start_date = '2015-12-22'
-		end_date = '2015-12-23'
-
 		if self.timezone_granularity:
 			start_date += 'T00:00:00Z'
 			end_date += 'T00:00:00Z'
+
+		# DEVEL - to fetch cross-link records
+		start_date = '2016-07-12T13:47:00Z'
+		end_date = '2016-07-12T13:48:00Z'
 
 		url = furl(self.base_url)
 		url.args['verb'] = 'ListRecords'
@@ -210,11 +204,11 @@ def relatedIdentifers(record):
 	"""
 	DEMO of how we would pluck the following attributes from metadate record for
 	the "relatedIdentifiers" property
-
+	
 	- relationIdentifier
 	- relationIdentifierType (e.g., DOI)
 	- relationType (e.g., hasDataset - but something in datacite vocab?)
-
+	
 	and put them in the return object.
 	NOTE: the required metadata for relatedIdentifiers is not yet in osm records,
 	so I am looking for any old "doi" identifier instead ...
@@ -226,26 +220,26 @@ def relatedIdentifers(record):
 
 	ns=OpenskyHarvester.namespaces
 
-	relatedItem_xpath = '//mods:mods/mods:relatedItem[@otherTypeAuth="DataCite Metadata Schema 3.1"]'
+	relatedItem_xpath = '//mods:mods/mods:relatedItem[@otherTypeAuthURI="http://dx.doi.org/10.5438/0010"]'
 	try:
 		relatedItem = record.xpath(relatedItem_xpath, namespaces=ns)[0]
 		if relatedItem is None:
 			raise Exception, 'relatedItem not found'
 		relationType = relatedItem.get('otherType')
 		title = getXpath(relatedItem, 'mods:titleInfo/mods:title')
+		publisher = getXpath(relatedItem, 'mods:originInfo/mods:publisher')
+		genre = getXpath(relatedItem, 'mods:genre[@authorityURI="http://dx.doi.org/10.5438/0010"]')
 
 		# try to get a DOI, if we can't get doi look for uri
-		doi = getXpath(relatedItem, 'mods:identifier[@type="doi"]')
-		if doi:
-			relatedIdentifier = doi
-			relatedIdentifierType = "DOI"
-		else:
-			url = getXpath(relatedItem, 'mods:location/mods:url')
-			if url is not None and url != '':
-				relatedIdentifier = url
-				relatedIdentifierType = "url"
+		identityEls = relatedItem.xpath('mods:identifier', namespaces=ns)
+		if identityEls == None or len(identityEls) == 0:
+			raise Exception, 'identity element not found'
+		identityEl = identityEls[0]
+		relatedIdentifierType = identityEl.get('type')
+		relatedIdentifier = identityEl.text
 
-	except IOError, msg:
+	except Exception, msg:
+		# maybe not really an error - we just didn't find any relation stuff'
 		print 'ERROR: %s' % msg
 		return {}
 
@@ -253,7 +247,9 @@ def relatedIdentifers(record):
 		'relatedIdentifierType' : relatedIdentifierType,
 		'relatedIdentifier' : relatedIdentifier,
 		'relationType' : relationType,
-		'title': title
+		'title': title,
+		'publisher' : publisher,
+		'resourceType' : genre
 	}
 
 
