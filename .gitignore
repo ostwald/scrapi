@@ -65,3 +65,6 @@ archive/*
 
 # Emacs edited files:
 *.*~
+
+# my additions
+*.bak
